@@ -5,25 +5,47 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Phone Monitor</title>
   <style>
-    body { font-family: system-ui, sans-serif; background:#0d1117; color:#e6edf3; margin:0; padding:16px; }
-    h1 { font-size:20px; }
-    .card { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:16px; margin:12px 0; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background:#0d1117; color:#e6edf3; margin:0; }
+    h1 { font-size:18px; margin:0; }
+    .card { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:16px; margin:12px; }
     .online { color:#3fb950; font-weight:700; }
     .offline { color:#f85149; font-weight:700; }
     .id { font-size:11px; color:#8b949e; word-break:break-all; margin:4px 0 12px; }
     .dot { height:10px; width:10px; border-radius:50%; display:inline-block; margin-right:6px; }
-    .row { display:flex; justify-content:space-between; padding:6px 0; border-top:1px solid #21262d; }
+    .row { display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid #21262d; }
     .row span:first-child { color:#8b949e; }
     a { color:#58a6ff; }
-    input { width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid #30363d; background:#0d1117; color:#e6edf3; box-sizing:border-box; }
-    button { width:100%; padding:12px; border:none; border-radius:8px; background:#238636; color:#fff; font-weight:600; cursor:pointer; }
+    input { width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid #30363d; background:#0d1117; color:#e6edf3; }
+    button { padding:12px; border:none; border-radius:8px; background:#238636; color:#fff; font-weight:600; cursor:pointer; }
     #login { max-width:340px; margin:60px auto; }
+    #login button { width:100%; }
     #err { color:#f85149; font-size:14px; }
-    #logout { width:auto; padding:6px 12px; background:#30363d; font-size:12px; float:right; }
+
+    /* Top bar */
+    .topbar { display:flex; align-items:center; gap:12px; padding:14px 16px; background:#161b22; border-bottom:1px solid #30363d; position:sticky; top:0; z-index:5; }
+    .topbar button { background:#30363d; padding:8px 12px; font-size:14px; }
+    .topbar .title { flex:1; }
+    #menuBtn { font-size:18px; }
+
+    /* Drawer */
+    .drawer { position:fixed; top:0; left:0; height:100%; width:230px; background:#161b22; border-right:1px solid #30363d; transform:translateX(-100%); transition:transform .2s; z-index:20; padding-top:20px; }
+    .drawer.open { transform:translateX(0); }
+    .drawer-item { padding:16px 20px; font-size:15px; cursor:pointer; border-bottom:1px solid #21262d; }
+    .drawer-item.active { background:#1f6feb22; color:#58a6ff; }
+    .overlay { position:fixed; inset:0; background:#0008; z-index:15; display:none; }
+    .overlay.show { display:block; }
+
+    /* Live */
+    .screen { width:100%; border-radius:10px; border:1px solid #30363d; margin-top:12px; background:#000; }
+    .noscreen { padding:40px; text-align:center; color:#8b949e; border:1px dashed #30363d; border-radius:10px; margin-top:12px; }
+    .controller { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .controller button { padding:10px 12px; font-size:13px; }
+    .b-blue{background:#1f6feb;} .b-purple{background:#8957e5;} .b-red{background:#da3633;} .b-gray{background:#30363d;}
   </style>
 </head>
 <body>
-  <!-- Login screen -->
+  <!-- Login -->
   <div id="login" class="card">
     <h1>🔒 Phone Monitor Login</h1>
     <input id="user" placeholder="Email" autocomplete="username" />
@@ -32,12 +54,21 @@
     <p id="err"></p>
   </div>
 
-  <!-- Dashboard (hidden until login) -->
+  <!-- App -->
   <div id="app" style="display:none">
-    <button id="logout">Logout</button>
-    <h1>📱 Phone Monitor — Devices</h1>
-    <button id="listen" style="width:auto;padding:8px 14px;background:#1f6feb;font-size:13px;margin-bottom:8px;">🔊 Enable audio</button>
-    <div id="list">Loading...</div>
+    <div class="topbar">
+      <button id="menuBtn">☰</button>
+      <span class="title"><h1>📱 Phone Monitor</h1></span>
+      <button id="logout">Logout</button>
+    </div>
+
+    <div id="overlay" class="overlay"></div>
+    <div id="drawer" class="drawer">
+      <div class="drawer-item active" data-view="info">📊 Info</div>
+      <div class="drawer-item" data-view="live">🖥️ Live Screen & Voice</div>
+    </div>
+
+    <div id="content"></div>
   </div>
 
   <script type="module">
@@ -60,25 +91,33 @@
     const db = getDatabase(app);
     const auth = getAuth(app);
 
-    // full email as-is
-    const toEmail = (u) => u.trim();
-
+    // ---- Login ----
     document.getElementById("loginBtn").onclick = () => {
-      const u = document.getElementById("user").value;
+      const u = document.getElementById("user").value.trim();
       const p = document.getElementById("pass").value;
       document.getElementById("err").textContent = "";
-      signInWithEmailAndPassword(auth, toEmail(u), p)
-        .catch(() => document.getElementById("err").textContent = "Wrong username or password.");
+      signInWithEmailAndPassword(auth, u, p)
+        .catch(() => document.getElementById("err").textContent = "Wrong email or password.");
     };
     document.getElementById("logout").onclick = () => signOut(auth);
 
-    // Audio: browsers block autoplay until a click, so use a button to enable
+    // ---- Menu / drawer ----
+    let view = "info";
+    const drawer = document.getElementById("drawer");
+    const overlay = document.getElementById("overlay");
+    const openDrawer = (o) => { drawer.classList.toggle("open", o); overlay.classList.toggle("show", o); };
+    document.getElementById("menuBtn").onclick = () => openDrawer(!drawer.classList.contains("open"));
+    overlay.onclick = () => openDrawer(false);
+    document.querySelectorAll(".drawer-item").forEach(it => it.onclick = () => {
+      view = it.dataset.view;
+      document.querySelectorAll(".drawer-item").forEach(x => x.classList.toggle("active", x === it));
+      openDrawer(false);
+      render();
+    });
+
+    // ---- Audio ----
     let audioOn = false;
     const lastAudio = {};
-    document.getElementById("listen").onclick = () => {
-      audioOn = true;
-      document.getElementById("listen").textContent = "🔊 Audio ON";
-    };
 
     const timeAgo = (t) => {
       if (!t) return "-";
@@ -88,69 +127,81 @@
       return new Date(t).toLocaleString();
     };
 
-    // Show dashboard only when logged in
-    onAuthStateChanged(auth, (loggedUser) => {
-      const loginBox = document.getElementById("login");
-      const appBox = document.getElementById("app");
-      if (!loggedUser) { loginBox.style.display = "block"; appBox.style.display = "none"; return; }
-      loginBox.style.display = "none";
-      appBox.style.display = "block";
+    let latest = {};
 
-      onValue(ref(db, "devices"), (snap) => {
-        const data = snap.val() || {};
-        const list = document.getElementById("list");
-        const ids = Object.keys(data);
-        if (ids.length === 0) { list.textContent = "No devices found."; return; }
+    function render() {
+      const content = document.getElementById("content");
+      const ids = Object.keys(latest);
+      if (ids.length === 0) { content.innerHTML = `<div class="card">No devices found.</div>`; return; }
 
-        list.innerHTML = ids.map(id => {
-          const d = data[id];
-          const live = d.live || {};
-          const screen = d.screen || {};
-          const img = screen.frame
-            ? `<img src="data:image/jpeg;base64,${screen.frame}" style="width:100%;border-radius:8px;margin-top:12px;border:1px solid #30363d" />`
-            : "";
-          const online = d.status === "online";
+      content.innerHTML = ids.map(id => {
+        const d = latest[id];
+        const live = d.live || {};
+        const screen = d.screen || {};
+        const online = d.status === "online";
+        const head = `<div><span class="dot" style="background:${online?'#3fb950':'#f85149'}"></span>
+          <span class="${online?'online':'offline'}">${online?'ONLINE':'OFFLINE'}</span></div>
+          <div class="id">${id}</div>`;
+
+        if (view === "info") {
           const map = (live.lat && live.lng)
-            ? `<a href="https://www.google.com/maps?q=${live.lat},${live.lng}" target="_blank">View on map</a>`
-            : "-";
-          return `<div class="card">
-            <div><span class="dot ${online?'online':'offline'}" style="background:${online?'#3fb950':'#f85149'}"></span>
-            <span class="${online?'online':'offline'}">${online?'ONLINE':'OFFLINE'}</span></div>
-            <div class="id">${id}</div>
+            ? `<a href="https://www.google.com/maps?q=${live.lat},${live.lng}" target="_blank">View on map</a>` : "-";
+          return `<div class="card">${head}
             <div class="row"><span>🔋 Battery</span><span>${live.battery ?? '-'}%</span></div>
             <div class="row"><span>📶 Network</span><span>${live.network ?? '-'}</span></div>
             <div class="row"><span>📱 Current app</span><span>${live.currentApp ?? '-'}</span></div>
             <div class="row"><span>📍 Location</span><span>${map}</span></div>
             <div class="row"><span>🕒 Last seen</span><span>${timeAgo(d.lastSeen)}</span></div>
-            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-              <button class="ctl" data-id="${id}" data-act="audio-on" style="width:auto;padding:6px 10px;background:#238636;font-size:12px">🎤 Start audio</button>
-              <button class="ctl" data-id="${id}" data-act="audio-off" style="width:auto;padding:6px 10px;background:#8957e5;font-size:12px">🔇 Stop audio</button>
-              <button class="ctl" data-id="${id}" data-act="screen-off" style="width:auto;padding:6px 10px;background:#da3633;font-size:12px">🛑 Stop screen</button>
-            </div>
-            ${img}
           </div>`;
-        }).join("");
-
-        // Control buttons -> write to Firebase, phone reacts
-        document.querySelectorAll(".ctl").forEach(b => b.onclick = () => {
-          const id = b.dataset.id, act = b.dataset.act;
-          if (act === "audio-on")  set(ref(db, `devices/${id}/control/audio`), true);
-          if (act === "audio-off") set(ref(db, `devices/${id}/control/audio`), false);
-          if (act === "screen-off") set(ref(db, `devices/${id}/control/screen`), false);
-        });
-
-        // Play new audio clips (~4s each)
-        if (audioOn) {
-          ids.forEach(id => {
-            const a = data[id].audio || {};
-            if (a.clip && a.at && a.at > (lastAudio[id] || 0)) {
-              lastAudio[id] = a.at;
-              new Audio("data:audio/mp4;base64," + a.clip).play().catch(() => {});
-            }
-          });
         }
-      }, (error) => {
-        document.getElementById("list").textContent = "Access denied. " + error.message;
+
+        // live view
+        const img = screen.frame
+          ? `<img class="screen" src="data:image/jpeg;base64,${screen.frame}" />`
+          : `<div class="noscreen">Screen off — tap "Screen" on the phone to start</div>`;
+        return `<div class="card">${head}
+          ${img}
+          <div class="controller">
+            <button class="${audioOn?'b-purple':'b-blue'}" data-id="${id}" data-act="toggle-listen">${audioOn?'🔇 Mute':'🔊 Listen'}</button>
+            <button class="b-gray" data-id="${id}" data-act="mic-on">🎤 Mic ON</button>
+            <button class="b-purple" data-id="${id}" data-act="mic-off">🔕 Mic OFF</button>
+            <button class="b-red" data-id="${id}" data-act="screen-off">🛑 Stop screen</button>
+          </div>
+        </div>`;
+      }).join("");
+
+      // bind controller buttons
+      document.querySelectorAll(".controller button").forEach(b => b.onclick = () => {
+        const id = b.dataset.id, act = b.dataset.act;
+        if (act === "toggle-listen") { audioOn = !audioOn; render(); }
+        if (act === "mic-on")  set(ref(db, `devices/${id}/control/audio`), true);
+        if (act === "mic-off") set(ref(db, `devices/${id}/control/audio`), false);
+        if (act === "screen-off") set(ref(db, `devices/${id}/control/screen`), false);
+      });
+    }
+
+    function playAudio() {
+      if (!audioOn) return;
+      Object.keys(latest).forEach(id => {
+        const a = latest[id].audio || {};
+        if (a.clip && a.at && a.at > (lastAudio[id] || 0)) {
+          lastAudio[id] = a.at;
+          new Audio("data:audio/mp4;base64," + a.clip).play().catch(() => {});
+        }
+      });
+    }
+
+    // ---- Auth gate + data ----
+    onAuthStateChanged(auth, (u) => {
+      document.getElementById("login").style.display = u ? "none" : "block";
+      document.getElementById("app").style.display = u ? "block" : "none";
+      if (!u) return;
+      onValue(ref(db, "devices"), (snap) => {
+        latest = snap.val() || {};
+        render();
+        playAudio();
+      }, (e) => {
+        document.getElementById("content").innerHTML = `<div class="card">Access denied. ${e.message}</div>`;
       });
     });
   </script>
