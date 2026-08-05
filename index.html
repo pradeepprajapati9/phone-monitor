@@ -55,6 +55,10 @@
       list.innerHTML = ids.map(id => {
         const d = data[id];
         const live = d.live || {};
+        const screen = d.screen || {};
+        const img = screen.frame
+          ? `<img src="data:image/jpeg;base64,${screen.frame}" style="width:100%;border-radius:8px;margin-top:12px;border:1px solid #30363d" />`
+          : "";
         const online = d.status === "online";
         const map = (live.lat && live.lng)
           ? `<a href="https://www.google.com/maps?q=${live.lat},${live.lng}" target="_blank">View on map</a>`
@@ -68,6 +72,7 @@
           <div class="row"><span>📱 Current app</span><span>${live.currentApp ?? '-'}</span></div>
           <div class="row"><span>📍 Location</span><span>${map}</span></div>
           <div class="row"><span>🕒 Last seen</span><span>${timeAgo(d.lastSeen)}</span></div>
+          ${img}
         </div>`;
       }).join("");
     });
