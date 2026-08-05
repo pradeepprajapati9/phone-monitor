@@ -26,7 +26,7 @@
   <!-- Login screen -->
   <div id="login" class="card">
     <h1>🔒 Phone Monitor Login</h1>
-    <input id="user" placeholder="Username" autocomplete="username" />
+    <input id="user" placeholder="Email" autocomplete="username" />
     <input id="pass" type="password" placeholder="Password" autocomplete="current-password" />
     <button id="loginBtn">Login</button>
     <p id="err"></p>
@@ -59,8 +59,8 @@
     const db = getDatabase(app);
     const auth = getAuth(app);
 
-    // username -> internal email
-    const toEmail = (u) => `${u.trim()}@phonemonitor.com`;
+    // full email as-is
+    const toEmail = (u) => u.trim();
 
     document.getElementById("loginBtn").onclick = () => {
       const u = document.getElementById("user").value;
