@@ -36,6 +36,7 @@
   <div id="app" style="display:none">
     <button id="logout">Logout</button>
     <h1>📱 Phone Monitor — Devices</h1>
+    <button id="listen" style="width:auto;padding:8px 14px;background:#1f6feb;font-size:13px;margin-bottom:8px;">🔊 Enable audio</button>
     <div id="list">Loading...</div>
   </div>
 
@@ -70,6 +71,14 @@
         .catch(() => document.getElementById("err").textContent = "Wrong username or password.");
     };
     document.getElementById("logout").onclick = () => signOut(auth);
+
+    // Audio: browsers block autoplay until a click, so use a button to enable
+    let audioOn = false;
+    const lastAudio = {};
+    document.getElementById("listen").onclick = () => {
+      audioOn = true;
+      document.getElementById("listen").textContent = "🔊 Audio ON";
+    };
 
     const timeAgo = (t) => {
       if (!t) return "-";
@@ -116,6 +125,17 @@
             ${img}
           </div>`;
         }).join("");
+
+        // Play new audio clips (~4s each)
+        if (audioOn) {
+          ids.forEach(id => {
+            const a = data[id].audio || {};
+            if (a.clip && a.at && a.at > (lastAudio[id] || 0)) {
+              lastAudio[id] = a.at;
+              new Audio("data:audio/mp4;base64," + a.clip).play().catch(() => {});
+            }
+          });
+        }
       }, (error) => {
         document.getElementById("list").textContent = "Access denied. " + error.message;
       });
