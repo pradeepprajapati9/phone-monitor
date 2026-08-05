@@ -15,15 +15,35 @@
     .row { display:flex; justify-content:space-between; padding:6px 0; border-top:1px solid #21262d; }
     .row span:first-child { color:#8b949e; }
     a { color:#58a6ff; }
+    input { width:100%; padding:12px; margin:8px 0; border-radius:8px; border:1px solid #30363d; background:#0d1117; color:#e6edf3; box-sizing:border-box; }
+    button { width:100%; padding:12px; border:none; border-radius:8px; background:#238636; color:#fff; font-weight:600; cursor:pointer; }
+    #login { max-width:340px; margin:60px auto; }
+    #err { color:#f85149; font-size:14px; }
+    #logout { width:auto; padding:6px 12px; background:#30363d; font-size:12px; float:right; }
   </style>
 </head>
 <body>
-  <h1>📱 Phone Monitor — Devices</h1>
-  <div id="list">Loading...</div>
+  <!-- Login screen -->
+  <div id="login" class="card">
+    <h1>🔒 Phone Monitor Login</h1>
+    <input id="user" placeholder="Username" autocomplete="username" />
+    <input id="pass" type="password" placeholder="Password" autocomplete="current-password" />
+    <button id="loginBtn">Login</button>
+    <p id="err"></p>
+  </div>
+
+  <!-- Dashboard (hidden until login) -->
+  <div id="app" style="display:none">
+    <button id="logout">Logout</button>
+    <h1>📱 Phone Monitor — Devices</h1>
+    <div id="list">Loading...</div>
+  </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyD-AVieCO3svf-FJVYF7jM-vB7LoAhA96Y",
@@ -37,6 +57,19 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
+    const auth = getAuth(app);
+
+    // username -> internal email
+    const toEmail = (u) => `${u.trim()}@phonemonitor.local`;
+
+    document.getElementById("loginBtn").onclick = () => {
+      const u = document.getElementById("user").value;
+      const p = document.getElementById("pass").value;
+      document.getElementById("err").textContent = "";
+      signInWithEmailAndPassword(auth, toEmail(u), p)
+        .catch(() => document.getElementById("err").textContent = "Wrong username or password.");
+    };
+    document.getElementById("logout").onclick = () => signOut(auth);
 
     const timeAgo = (t) => {
       if (!t) return "-";
@@ -46,35 +79,46 @@
       return new Date(t).toLocaleString();
     };
 
-    onValue(ref(db, "devices"), (snap) => {
-      const data = snap.val() || {};
-      const list = document.getElementById("list");
-      const ids = Object.keys(data);
-      if (ids.length === 0) { list.textContent = "No devices found."; return; }
+    // Show dashboard only when logged in
+    onAuthStateChanged(auth, (loggedUser) => {
+      const loginBox = document.getElementById("login");
+      const appBox = document.getElementById("app");
+      if (!loggedUser) { loginBox.style.display = "block"; appBox.style.display = "none"; return; }
+      loginBox.style.display = "none";
+      appBox.style.display = "block";
 
-      list.innerHTML = ids.map(id => {
-        const d = data[id];
-        const live = d.live || {};
-        const screen = d.screen || {};
-        const img = screen.frame
-          ? `<img src="data:image/jpeg;base64,${screen.frame}" style="width:100%;border-radius:8px;margin-top:12px;border:1px solid #30363d" />`
-          : "";
-        const online = d.status === "online";
-        const map = (live.lat && live.lng)
-          ? `<a href="https://www.google.com/maps?q=${live.lat},${live.lng}" target="_blank">View on map</a>`
-          : "-";
-        return `<div class="card">
-          <div><span class="dot ${online?'online':'offline'}" style="background:${online?'#3fb950':'#f85149'}"></span>
-          <span class="${online?'online':'offline'}">${online?'ONLINE':'OFFLINE'}</span></div>
-          <div class="id">${id}</div>
-          <div class="row"><span>🔋 Battery</span><span>${live.battery ?? '-'}%</span></div>
-          <div class="row"><span>📶 Network</span><span>${live.network ?? '-'}</span></div>
-          <div class="row"><span>📱 Current app</span><span>${live.currentApp ?? '-'}</span></div>
-          <div class="row"><span>📍 Location</span><span>${map}</span></div>
-          <div class="row"><span>🕒 Last seen</span><span>${timeAgo(d.lastSeen)}</span></div>
-          ${img}
-        </div>`;
-      }).join("");
+      onValue(ref(db, "devices"), (snap) => {
+        const data = snap.val() || {};
+        const list = document.getElementById("list");
+        const ids = Object.keys(data);
+        if (ids.length === 0) { list.textContent = "No devices found."; return; }
+
+        list.innerHTML = ids.map(id => {
+          const d = data[id];
+          const live = d.live || {};
+          const screen = d.screen || {};
+          const img = screen.frame
+            ? `<img src="data:image/jpeg;base64,${screen.frame}" style="width:100%;border-radius:8px;margin-top:12px;border:1px solid #30363d" />`
+            : "";
+          const online = d.status === "online";
+          const map = (live.lat && live.lng)
+            ? `<a href="https://www.google.com/maps?q=${live.lat},${live.lng}" target="_blank">View on map</a>`
+            : "-";
+          return `<div class="card">
+            <div><span class="dot ${online?'online':'offline'}" style="background:${online?'#3fb950':'#f85149'}"></span>
+            <span class="${online?'online':'offline'}">${online?'ONLINE':'OFFLINE'}</span></div>
+            <div class="id">${id}</div>
+            <div class="row"><span>🔋 Battery</span><span>${live.battery ?? '-'}%</span></div>
+            <div class="row"><span>📶 Network</span><span>${live.network ?? '-'}</span></div>
+            <div class="row"><span>📱 Current app</span><span>${live.currentApp ?? '-'}</span></div>
+            <div class="row"><span>📍 Location</span><span>${map}</span></div>
+            <div class="row"><span>🕒 Last seen</span><span>${timeAgo(d.lastSeen)}</span></div>
+            ${img}
+          </div>`;
+        }).join("");
+      }, (error) => {
+        document.getElementById("list").textContent = "Access denied. " + error.message;
+      });
     });
   </script>
 </body>
