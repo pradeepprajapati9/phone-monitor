@@ -116,8 +116,59 @@
     });
 
     // ---- Audio ----
-    let audioOn = false;
+    let audioOn = false;         // web phone ko SUN raha hai
+    let talkOn = false;          // web se phone pe BOL raha hai
+    let talkId = null;           // kis device se baat kar rahe
     const lastAudio = {};
+
+    // ---- Talk: browser mic -> WAV chunks -> Firebase talk node ----
+    let talkCtx = null, talkStream = null, talkNode = null, talkBuf = [];
+    const TALK_SR = 16000;
+
+    function buildWav(int16) {
+      const len = int16.length * 2, buf = new ArrayBuffer(44 + len), v = new DataView(buf);
+      const ws = (o, s) => { for (let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+      ws(0,"RIFF"); v.setUint32(4, 36+len, true); ws(8,"WAVE"); ws(12,"fmt ");
+      v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+      v.setUint32(24,TALK_SR,true); v.setUint32(28,TALK_SR*2,true);
+      v.setUint16(32,2,true); v.setUint16(34,16,true); ws(36,"data"); v.setUint32(40,len,true);
+      for (let i=0;i<int16.length;i++) v.setInt16(44+i*2, int16[i], true);
+      let bin=""; const b=new Uint8Array(buf);
+      for (let i=0;i<b.length;i++) bin += String.fromCharCode(b[i]);
+      return btoa(bin);
+    }
+
+    async function startTalk(id) {
+      try {
+        talkStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        talkCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TALK_SR });
+        const src = talkCtx.createMediaStreamSource(talkStream);
+        talkNode = talkCtx.createScriptProcessor(4096, 1, 1);
+        talkBuf = [];
+        talkNode.onaudioprocess = (e) => {
+          const f = e.inputBuffer.getChannelData(0);
+          for (let i=0;i<f.length;i++) {
+            const s = Math.max(-1, Math.min(1, f[i]));
+            talkBuf.push(s < 0 ? s*0x8000 : s*0x7FFF);
+          }
+          if (talkBuf.length >= TALK_SR) {           // ~1 sec bhar gaya
+            const chunk = Int16Array.from(talkBuf.splice(0, TALK_SR));
+            set(ref(db, `devices/${id}/talk`), { clip: buildWav(chunk), at: Date.now() });
+          }
+        };
+        src.connect(talkNode); talkNode.connect(talkCtx.destination);
+        talkOn = true; talkId = id;
+      } catch (err) { alert("Mic allow karo browser me: " + err.message); talkOn = false; }
+      render();
+    }
+
+    function stopTalk() {
+      try { talkNode && talkNode.disconnect(); } catch(_){}
+      try { talkStream && talkStream.getTracks().forEach(t => t.stop()); } catch(_){}
+      try { talkCtx && talkCtx.close(); } catch(_){}
+      talkCtx = talkStream = talkNode = null; talkBuf = [];
+      talkOn = false; talkId = null; render();
+    }
 
     const timeAgo = (t) => {
       if (!t) return "-";
@@ -162,9 +213,8 @@
         return `<div class="card">${head}
           ${img}
           <div class="controller">
-            <button class="${audioOn?'b-purple':'b-blue'}" data-id="${id}" data-act="toggle-listen">${audioOn?'🔇 Mute':'🔊 Listen'}</button>
-            <button class="b-gray" data-id="${id}" data-act="mic-on">🎤 Mic ON</button>
-            <button class="b-purple" data-id="${id}" data-act="mic-off">🔕 Mic OFF</button>
+            <button class="${audioOn?'b-purple':'b-blue'}" data-id="${id}" data-act="toggle-listen">${audioOn?'🔇 Mute sunna':'🔊 Listen'}</button>
+            <button class="${(talkOn&&talkId===id)?'b-red':'b-purple'}" data-id="${id}" data-act="toggle-talk">${(talkOn&&talkId===id)?'🎙️ Stop bolna':'🎙️ Talk'}</button>
             <button class="b-red" data-id="${id}" data-act="screen-off">🛑 Stop screen</button>
           </div>
         </div>`;
@@ -174,8 +224,7 @@
       document.querySelectorAll(".controller button").forEach(b => b.onclick = () => {
         const id = b.dataset.id, act = b.dataset.act;
         if (act === "toggle-listen") { audioOn = !audioOn; render(); }
-        if (act === "mic-on")  set(ref(db, `devices/${id}/control/audio`), true);
-        if (act === "mic-off") set(ref(db, `devices/${id}/control/audio`), false);
+        if (act === "toggle-talk") { talkOn && talkId === id ? stopTalk() : startTalk(id); }
         if (act === "screen-off") set(ref(db, `devices/${id}/control/screen`), false);
       });
     }
@@ -186,7 +235,7 @@
         const a = latest[id].audio || {};
         if (a.clip && a.at && a.at > (lastAudio[id] || 0)) {
           lastAudio[id] = a.at;
-          new Audio("data:audio/mp4;base64," + a.clip).play().catch(() => {});
+          new Audio("data:audio/wav;base64," + a.clip).play().catch(() => {});
         }
       });
     }
